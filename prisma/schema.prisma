@@ -1,0 +1,281 @@
+// User/Session/Account/Verification below are Better Auth's required models
+// (User also carries a Phase 4 addition: `role`, for admin gating).
+// Order/OrderItem (Phase 3) and Category/Product (Phase 4) are this app's
+// own models.
+//
+// Pinned to the Prisma 6.x generator syntax deliberately — Prisma 7
+// (Nov 2025) introduced a Rust-free client with a different generator
+// block and an optional driver-adapter setup. The 6.x "prisma-client-js"
+// path below is the long-stable, widely-documented one, which matters
+// here because this project was generated without the ability to run
+// `npm install` and verify it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id
+  name          String
+  firstName     String?
+  lastName      String?
+  phone         String?
+  email         String
+  emailVerified Boolean
+  image         String?
+  role          String    @default("customer")
+  banned        Boolean?
+  banReason     String?
+  banExpires    DateTime?
+  createdAt     DateTime
+  updatedAt     DateTime
+  sessions      Session[]
+  accounts      Account[]
+  orders        Order[]
+  addresses     Address[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id            String   @id
+  expiresAt     DateTime
+  token         String
+  createdAt     DateTime
+  updatedAt     DateTime
+  ipAddress     String?
+  userAgent     String?
+  impersonatedBy String?
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
+
+// --- Orders & payments ---
+// No payment gateway here — Pakistan-focused manual payment instead (bank
+// transfer / JazzCash / EasyPaisa). The customer transfers money outside
+// this app, then reports a transaction id; an admin checks their actual
+// bank/wallet statement and confirms or rejects it from /admin/orders.
+// Nothing here is cryptographically verified — see README "Payment
+// architecture notes" for what that does and doesn't mean for trust.
+//
+// Lifecycle: PENDING (cart + address captured, no transaction id yet) →
+// PENDING_VERIFICATION (customer submitted one) → CONFIRMED or REJECTED
+// (admin decision) → FULFILLED (shipped, only reached from CONFIRMED).
+// Stock decrements on CONFIRMED, not on order creation — see
+// app/admin/actions.ts#confirmPayment.
+
+enum OrderStatus {
+  PENDING
+  PENDING_VERIFICATION
+  CONFIRMED
+  REJECTED
+  FULFILLED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  JAZZCASH
+  EASYPAISA
+}
+
+model Order {
+  id                String        @id @default(cuid())
+  userId            String?
+  user              User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestEmail        String?
+  status            OrderStatus   @default(PENDING)
+  paymentMethod     PaymentMethod?
+  transactionId     String?
+  transactionNote   String?
+  submittedAt       DateTime?
+  verifiedAt        DateTime?
+  verifiedBy        String?
+  rejectionReason   String?
+  subtotalCents     Int
+  totalCents        Int
+  currency          String        @default("PKR")
+  billingAddress    Json?
+  shippingAddress   Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  items             OrderItem[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id             String @id @default(cuid())
+  orderId        String
+  order          Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String
+  name           String
+  image          String
+  unitPriceCents Int
+  quantity       Int
+}
+
+// Saved address book — only for registered users; guests just fill the
+// checkout form fresh each time and their entry only ever lives on that
+// Order's billingAddress/shippingAddress snapshot, not here.
+
+model Address {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label             String?
+  firstName         String
+  lastName          String
+  line1             String
+  line2             String?
+  city              String
+  state             String
+  postalCode        String
+  country           String   @default("PK")
+  phone             String?
+  isDefaultBilling  Boolean  @default(false)
+  isDefaultShipping Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// --- Phase 4 + Product Management update: catalog ---
+// Price stays a plain dollar Float (not cents). OrderItem does NOT have a
+// foreign key to Product — it snapshots name/image/price at purchase time.
+// The single `image: String` field was replaced by a normalized ProductImage
+// relation; lib/products.ts derives the primary image from the featured
+// (or first) ProductImage for the storefront Product type.
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+}
+
+model Product {
+  id             String         @id @default(cuid())
+  slug           String         @unique
+  name           String
+  sku            String?        @unique
+  price          Float
+  description    String
+  details        String[]
+  stock          Int            @default(0)
+  badge          String?
+  status         ProductStatus  @default(DRAFT)
+  seoTitle       String?
+  seoDescription String?
+  categoryId     String
+  category       Category       @relation(fields: [categoryId], references: [id])
+  images         ProductImage[]
+  deletedAt      DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([badge])
+  @@index([price])
+  @@index([stock])
+}
+
+// Normalized image storage. sortOrder controls gallery position; isFeatured
+// marks the primary image used in listings and OG images. Only one image per
+// product should have isFeatured = true — enforced in the admin actions, not
+// at the DB level (Postgres partial unique indexes aren't in Prisma yet).
+model ProductImage {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url        String
+  sortOrder  Int      @default(0)
+  isFeatured Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([productId])
+}
+
+// --- Phase 6: email ---
+// unsubscribeToken is a separate random value from `id` specifically so it
+// can be put in unsubscribe links without exposing the subscriber's
+// database id (a guessable sequential id would let someone unsubscribe
+// other people by walking through ids).
+
+model Subscriber {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  unsubscribeToken String    @unique @default(cuid())
+  subscribedAt     DateTime  @default(now())
+  unsubscribedAt   DateTime?
+}
+
+// --- Hero slides ---
+// Managed via /admin/content/slides. sortOrder controls display order;
+// only isActive=true slides are shown on the storefront.
+
+model HeroSlide {
+  id        String   @id @default(cuid())
+  title     String
+  subtitle  String?
+  ctaLabel  String?
+  ctaUrl    String?
+  imageUrl  String?
+  bgColor   String   @default("#1F3A2E")
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
