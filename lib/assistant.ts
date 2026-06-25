@@ -52,12 +52,9 @@ async function runTool(name: string, input: Record<string, unknown>, ctx: ToolCo
       search: typeof input.query === "string" ? input.query : undefined,
       category: typeof input.category === "string" ? input.category : undefined,
       maxPrice: typeof input.maxPrice === "number" ? input.maxPrice : undefined,
-      inStockOnly: Boolean(input.inStockOnly),
+      inStockOnly: input.inStockOnly === true,
     });
 
-    // Capped at 8 and trimmed to a few fields on purpose — this goes back
-    // into the model's context, not to the user directly, so it only needs
-    // enough to answer well, not the full Product shape.
     return products.slice(0, 8).map((product) => ({
       name: product.name,
       slug: product.slug,
@@ -109,14 +106,6 @@ const MAX_TOOL_ITERATIONS = 4;
 export async function runAssistant(history: ChatMessage[], ctx: ToolContext): Promise<string> {
   const client = getAnthropic();
 
-  // Typed loosely (any) on purpose for the running conversation array: the
-  // Anthropic SDK's content-block types are deeply nested and namespaced in
-  // a way that's changed across SDK versions, so importing them by exact
-  // path risked a compile error this sandbox has no way to catch. This
-  // object shape matches the documented Messages API exactly — the SDK
-  // accepts it structurally regardless of which named type I'd have
-  // imported.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let messages: any[] = history.map((message) => ({ role: message.role, content: message.content }));
 
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
@@ -125,21 +114,17 @@ export async function runAssistant(history: ChatMessage[], ctx: ToolContext): Pr
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: tools as any,
     });
 
     if (response.stop_reason !== "tool_use") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const textBlock = response.content.find((block: any) => block.type === "text");
+      const textBlock = response.content.find((block: any) => block.type === "text") as any;
       return textBlock?.text ?? "";
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const toolUseBlocks = response.content.filter((block: any) => block.type === "tool_use");
 
     const toolResults = await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       toolUseBlocks.map(async (block: any) => ({
         type: "tool_result",
         tool_use_id: block.id,
