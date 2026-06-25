@@ -97,7 +97,12 @@ export default async function AdminUserDetailPage({
 
       <section className="seed-packet mt-8 p-6">
         <h3 className="font-display text-base text-canopy">Profile</h3>
-        <form action={boundUpdateName} className="mt-3 flex flex-wrap items-end gap-3">
+        <form 
+          action={async (formData) => {
+            await boundUpdateName(formData);
+          }} 
+          className="mt-3 flex flex-wrap items-end gap-3"
+        >
           <div>
             <label htmlFor="name" className="text-xs text-loam/70">
               Name
@@ -124,7 +129,12 @@ export default async function AdminUserDetailPage({
 
       <section className="seed-packet mt-6 p-6">
         <h3 className="font-display text-base text-canopy">Role</h3>
-        <form action={boundChangeRole} className="mt-3 flex flex-wrap items-end gap-3">
+        <form 
+          action={async (formData) => {
+            await boundChangeRole(formData);
+          }} 
+          className="mt-3 flex flex-wrap items-end gap-3"
+        >
           <div>
             <label htmlFor="role" className="text-xs text-loam/70">
               Role
@@ -153,7 +163,12 @@ export default async function AdminUserDetailPage({
       <section className="seed-packet mt-6 p-6">
         <h3 className="font-display text-base text-canopy">Account status</h3>
         {user.banned ? (
-          <form action={boundUnban} className="mt-3">
+          <form 
+            action={async () => {
+              await boundUnban();
+            }} 
+            className="mt-3"
+          >
             <button
               type="submit"
               disabled={isSelf}
@@ -163,7 +178,12 @@ export default async function AdminUserDetailPage({
             </button>
           </form>
         ) : (
-          <form action={boundBan} className="mt-3 flex flex-wrap items-end gap-3">
+          <form 
+            action={async (formData) => {
+              await boundBan(formData);
+            }} 
+            className="mt-3 flex flex-wrap items-end gap-3"
+          >
             <div>
               <label htmlFor="reason" className="text-xs text-loam/70">
                 Reason (optional)
@@ -216,7 +236,12 @@ export default async function AdminUserDetailPage({
 
       <section className="mt-10 border-t border-clay/20 pt-6">
         <h3 className="font-display text-base text-clay">Danger zone</h3>
-        <form action={boundDelete} className="mt-3">
+        <form 
+          action={async () => {
+            await boundDelete();
+          }} 
+          className="mt-3"
+        >
           <ConfirmSubmitButton
             confirmMessage={`Permanently delete ${user.email}? This can't be undone. Their past orders are kept for records but will show as a deleted account.`}
             disabled={isSelf}
