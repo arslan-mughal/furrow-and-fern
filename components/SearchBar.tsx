@@ -7,6 +7,7 @@ import {
   useCallback,
   useId,
   type KeyboardEvent,
+  type RefObject, // <-- Fixed: Imported directly so TS doesn't crash looking for 'React'
 } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X, Loader2, ArrowRight } from "lucide-react";
@@ -116,7 +117,7 @@ interface SearchInputProps {
   loading: boolean;
   placeholder?: string;
   autoFocus?: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: RefObject<HTMLInputElement | null>; // <-- Fixed: Typed properly for strict mode
   className?: string;
 }
 
@@ -287,7 +288,7 @@ export function SearchBar() {
       try {
         const res = await fetch(
           `/api/search?q=${encodeURIComponent(trimmed)}&limit=6`,
-          { signal: abortRef.current.signal }
+          { signal: abortRef.current?.signal } // <-- Fixed: Optional chaining prevents strict TS errors
         );
         if (!res.ok) throw new Error("Search request failed");
         const data = await res.json();
@@ -489,7 +490,7 @@ export function SearchBar() {
           <div className="flex-1 overflow-y-auto">
             {query.trim().length < MIN_QUERY_LEN ? (
               <p className="px-4 py-8 text-center text-sm text-loam/50">
-                Type at least 2 characters to search…
+                Type at least {MIN_QUERY_LEN} characters to search…
               </p>
             ) : (
               <Dropdown
