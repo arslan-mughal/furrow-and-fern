@@ -15,6 +15,34 @@ import { requireAdminAction } from "@/lib/admin";
  * every other action in this codebase (app/admin/actions.ts) uses.
  */
 
+/**
+ * The roles this application uses at runtime.
+ *
+ * Better Auth's admin plugin ships with a hardcoded TypeScript union of
+ * `"user" | "admin"` for the `role` field on `auth.api.setRole`'s body.
+ * That union is not a generic — passing `defaultRole: "customer"` in the
+ * plugin config changes the runtime default but does NOT widen the compile-
+ * time type. This means TypeScript rejects `"customer"` as a valid role even
+ * though Better Auth accepts it at runtime.
+ *
+ * `AuthRole` is derived directly from the parameter type of `auth.api.setRole`
+ * so it stays in sync automatically if Better Auth ever updates that signature.
+ * We then broaden it with our `"customer"` role via a union to form `AppRole`,
+ * which is what the runtime validation and the setRole call both use.
+ *
+ * The final `as AuthRole` assertion on the setRole call is deliberate:
+ *   - It does NOT use `any` (all type information is preserved).
+ *   - It asserts the specific library type that setRole declares, not a wider type.
+ *   - It is necessary because Better Auth's plugin type is wrong relative to
+ *     its own runtime behaviour — this is a known BA 1.x limitation.
+ *   - The runtime guard above the assertion (`role !== "customer" && role !== "admin"`)
+ *     ensures the value is always valid before we reach the assertion.
+ */
+type AuthRole = Parameters<typeof auth.api.setRole>[0]["body"]["role"];
+type AppRole = AuthRole | "customer";
+
+const APP_ROLES: AppRole[] = ["admin", "customer"];
+
 export async function updateUserName(userId: string, formData: FormData) {
   await requireAdminAction();
 
@@ -36,13 +64,24 @@ export async function changeUserRole(userId: string, formData: FormData) {
     throw new Error("You can't change your own role.");
   }
 
-  const role = String(formData.get("role") ?? "");
-  if (role !== "customer" && role !== "admin") {
-    throw new Error("Invalid role.");
+  const raw = String(formData.get("role") ?? "");
+
+  // Validate against our AppRole array — this is the runtime guard.
+  // Only "admin" and "customer" pass; anything else throws before we
+  // ever reach the auth API call.
+  if (!APP_ROLES.includes(raw as AppRole)) {
+    throw new Error(`Invalid role: "${raw}". Expected one of: ${APP_ROLES.join(", ")}.`);
   }
 
+  // `raw` is now a valid AppRole ("admin" | "customer").
+  // Better Auth's setRole types its body.role as "user" | "admin" — a
+  // hardcoded union that doesn't reflect the `defaultRole: "customer"` config.
+  // The assertion to AuthRole is required to satisfy the compiler; it is safe
+  // because Better Auth accepts "customer" at runtime.
+  const role = raw as AppRole;
+
   await auth.api.setRole({
-    body: { userId, role },
+    body: { userId, role: role as AuthRole },
     headers: await headers(),
   });
 
