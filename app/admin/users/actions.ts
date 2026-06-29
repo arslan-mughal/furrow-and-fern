@@ -38,7 +38,7 @@ import { requireAdminAction } from "@/lib/admin";
  *   - The runtime guard above the assertion (`role !== "customer" && role !== "admin"`)
  *     ensures the value is always valid before we reach the assertion.
  */
-type AuthRole = Parameters<typeof auth.api.setRole>[0]["body"]["role"];
+type AuthRole = NonNullable<Parameters<typeof auth.api.setRole>[0]>["body"]["role"];
 type AppRole = AuthRole | "customer";
 
 const APP_ROLES: AppRole[] = ["admin", "customer"];
