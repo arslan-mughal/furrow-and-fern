@@ -1,45 +1,134 @@
-import { betterAuth } from "better-auth";
-import { admin } from "better-auth/plugins";
-import { prismaAdapter } from "better-auth/adapters/prisma";
-import { prisma } from "@/lib/prisma";
+"use server";
 
-// Social providers are only registered if their credentials are present, so
-// the app still runs (email/password works) before you've set up Google or
-// Facebook OAuth apps. See README.md "Phase 2 setup" for how to add them.
-type SocialProviderConfig = { clientId: string; clientSecret: string };
-const socialProviders: { google?: SocialProviderConfig; facebook?: SocialProviderConfig } = {};
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
+import { requireAdminAction } from "@/lib/admin";
 
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  socialProviders.google = {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  };
+/**
+ * Every operation here goes through Better Auth's admin plugin (auth.api.*),
+ * not raw Prisma — banUser in particular also revokes the target's existing
+ * sessions, which a hand-written `prisma.user.update` wouldn't do. Every
+ * action still calls requireAdminAction() itself first: the plugin does its
+ * own permission check too, but that's defense in depth, the same pattern
+ * every other action in this codebase (app/admin/actions.ts) uses.
+ */
+
+/**
+ * The roles this application uses at runtime.
+ *
+ * Better Auth's admin plugin ships with a hardcoded TypeScript union of
+ * `"user" | "admin"` for the `role` field on `auth.api.setRole`'s body.
+ * That union is not a generic — passing `defaultRole: "customer"` in the
+ * plugin config changes the runtime default but does NOT widen the compile-
+ * time type. This means TypeScript rejects `"customer"` as a valid role even
+ * though Better Auth accepts it at runtime.
+ *
+ * `AuthRole` is derived directly from the parameter type of `auth.api.setRole`
+ * so it stays in sync automatically if Better Auth ever updates that signature.
+ * We then broaden it with our `"customer"` role via a union to form `AppRole`,
+ * which is what the runtime validation and the setRole call both use.
+ *
+ * The final `as AuthRole` assertion on the setRole call is deliberate:
+ *   - It does NOT use `any` (all type information is preserved).
+ *   - It asserts the specific library type that setRole declares, not a wider type.
+ *   - It is necessary because Better Auth's plugin type is wrong relative to
+ *     its own runtime behaviour — this is a known BA 1.x limitation.
+ *   - The runtime guard above the assertion (`role !== "customer" && role !== "admin"`)
+ *     ensures the value is always valid before we reach the assertion.
+ */
+type AuthRole = Parameters<typeof auth.api.setRole>[0]["body"]["role"];
+type AppRole = AuthRole | "customer";
+
+const APP_ROLES: AppRole[] = ["admin", "customer"];
+
+export async function updateUserName(userId: string, formData: FormData) {
+  await requireAdminAction();
+
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) throw new Error("Name is required.");
+
+  await auth.api.adminUpdateUser({
+    body: { userId, data: { name } },
+    headers: await headers(),
+  });
+
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
 }
 
-if (process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET) {
-  socialProviders.facebook = {
-    clientId: process.env.FACEBOOK_CLIENT_ID,
-    clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
-  };
+export async function changeUserRole(userId: string, formData: FormData) {
+  const admin = await requireAdminAction();
+  if (admin.id === userId) {
+    throw new Error("You can't change your own role.");
+  }
+
+  const raw = String(formData.get("role") ?? "");
+
+  // Validate against our AppRole array — this is the runtime guard.
+  // Only "admin" and "customer" pass; anything else throws before we
+  // ever reach the auth API call.
+  if (!APP_ROLES.includes(raw as AppRole)) {
+    throw new Error(`Invalid role: "${raw}". Expected one of: ${APP_ROLES.join(", ")}.`);
+  }
+
+  // `raw` is now a valid AppRole ("admin" | "customer").
+  // Better Auth's setRole types its body.role as "user" | "admin" — a
+  // hardcoded union that doesn't reflect the `defaultRole: "customer"` config.
+  // The assertion to AuthRole is required to satisfy the compiler; it is safe
+  // because Better Auth accepts "customer" at runtime.
+  const role = raw as AppRole;
+
+  await auth.api.setRole({
+    body: { userId, role: role as AuthRole },
+    headers: await headers(),
+  });
+
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
 }
 
-export const auth = betterAuth({
-  database: prismaAdapter(prisma, {
-    provider: "postgresql",
-  }),
-  emailAndPassword: {
-    enabled: true,
-    minPasswordLength: 8,
-  },
-  socialProviders,
-  plugins: [
-    // Powers /admin/users: listUsers (search + pagination), setRole,
-    // banUser/unbanUser (revokes sessions + blocks sign-in), removeUser.
-    // defaultRole matches what this app already uses (Phase 4) instead of
-    // the plugin's own "user" default. adminRoles isn't set because its
-    // own default (["admin"]) already matches this app's admin role string.
-    admin({
-      defaultRole: "customer",
-    }),
-  ],
-});
+export async function banUser(userId: string, formData: FormData) {
+  const admin = await requireAdminAction();
+  if (admin.id === userId) {
+    throw new Error("You can't deactivate your own account.");
+  }
+
+  const reason = String(formData.get("reason") ?? "").trim();
+
+  await auth.api.banUser({
+    body: reason ? { userId, banReason: reason } : { userId },
+    headers: await headers(),
+  });
+
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
+}
+
+export async function unbanUser(userId: string) {
+  await requireAdminAction();
+
+  await auth.api.unbanUser({
+    body: { userId },
+    headers: await headers(),
+  });
+
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
+}
+
+export async function deleteUser(userId: string) {
+  const admin = await requireAdminAction();
+  if (admin.id === userId) {
+    throw new Error("You can't delete your own account.");
+  }
+
+  await auth.api.removeUser({
+    body: { userId },
+    headers: await headers(),
+  });
+
+  revalidatePath("/admin/users");
+  redirect("/admin/users");
+}
