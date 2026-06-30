@@ -6,7 +6,15 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatCents } from "@/lib/money";
 import { ConfirmSubmitButton } from "@/components/admin/ConfirmSubmitButton";
-import { updateUserName, changeUserRole, banUser, unbanUser, deleteUser } from "../actions";
+import {
+  updateUserName,
+  changeUserRole,
+  banUser,
+  unbanUser,
+  deleteUser,
+  resendVerificationEmail,
+  sendPasswordResetLink,
+} from "../actions";
 
 export const metadata: Metadata = {
   title: "User Detail — Admin",
@@ -47,6 +55,8 @@ export default async function AdminUserDetailPage({
   const boundBan = banUser.bind(null, user.id);
   const boundUnban = unbanUser.bind(null, user.id);
   const boundDelete = deleteUser.bind(null, user.id);
+  const boundResendVerification = resendVerificationEmail.bind(null, user.id);
+  const boundSendPasswordReset = sendPasswordResetLink.bind(null, user.id);
 
   return (
     <div className="max-w-3xl">
@@ -187,6 +197,37 @@ export default async function AdminUserDetailPage({
         <p className="mt-2 text-xs text-loam/50">
           Deactivating revokes their active sessions immediately and blocks sign-in until
           reactivated.
+        </p>
+      </section>
+
+      <section className="seed-packet mt-6 p-6">
+        <h3 className="font-display text-base text-canopy">Email &amp; access</h3>
+        <p className="mt-1 text-xs text-loam/50">
+          Email is {user.emailVerified ? "verified" : "not verified"}.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          {!user.emailVerified && (
+            <form action={boundResendVerification}>
+              <button
+                type="submit"
+                className="rounded-card border border-canopy/20 px-4 py-2 text-sm text-canopy hover:bg-sage"
+              >
+                Resend verification email
+              </button>
+            </form>
+          )}
+          <form action={boundSendPasswordReset}>
+            <button
+              type="submit"
+              className="rounded-card border border-canopy/20 px-4 py-2 text-sm text-canopy hover:bg-sage"
+            >
+              Send password reset link
+            </button>
+          </form>
+        </div>
+        <p className="mt-2 text-xs text-loam/50">
+          Both send an email to {user.email} — useful when a customer contacts support
+          saying they never received the original email, or can&apos;t access it anymore.
         </p>
       </section>
 

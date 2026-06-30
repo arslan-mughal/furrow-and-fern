@@ -38,7 +38,7 @@ import { requireAdminAction } from "@/lib/admin";
  *   - The runtime guard above the assertion (`role !== "customer" && role !== "admin"`)
  *     ensures the value is always valid before we reach the assertion.
  */
-type AuthRole = NonNullable<Parameters<typeof auth.api.setRole>[0]>["body"]["role"];
+type AuthRole = NonNullable<Parameters<NonNullable<typeof auth.api.setRole>>[0]>["body"]["role"];
 type AppRole = AuthRole | "customer";
 
 const APP_ROLES: AppRole[] = ["admin", "customer"];
@@ -131,4 +131,60 @@ export async function deleteUser(userId: string) {
 
   revalidatePath("/admin/users");
   redirect("/admin/users");
+}
+
+export async function resendVerificationEmail(userId: string) {
+  await requireAdminAction();
+
+  // auth.api.sendVerificationEmail needs an email address, not a userId —
+  // look it up first. Goes through the same emailVerification.sendVerificationEmail
+  // callback in lib/auth.ts as the self-serve resend link on /login.
+  const user = await auth.api.getUser({ query: { id: userId }, headers: await headers() });
+  if (!user) {
+    throw new Error("User not found.");
+  }
+  if (user.emailVerified) {
+    throw new Error("This user's email is already verified.");
+  }
+
+  try {
+    await auth.api.sendVerificationEmail({
+      body: { email: user.email, callbackURL: "/verify-email" },
+      headers: await headers(),
+    });
+  } catch (err) {
+    // Better Auth throws APIError on auth.api.* failures rather than
+    // returning a {error} object — server-side calls aren't the same as
+    // the client SDK's {data, error} shape. Surface a clean message
+    // instead of an unhandled Server Action error screen.
+    const message = err instanceof Error ? err.message : "Couldn't send the verification email.";
+    throw new Error(message);
+  }
+
+  revalidatePath(`/admin/users/${userId}`);
+}
+
+export async function sendPasswordResetLink(userId: string) {
+  await requireAdminAction();
+
+  const user = await auth.api.getUser({ query: { id: userId }, headers: await headers() });
+  if (!user) {
+    throw new Error("User not found.");
+  }
+
+  try {
+    // Goes through the same emailAndPassword.sendResetPassword callback in
+    // lib/auth.ts as the self-serve "forgot password?" link on /login —
+    // this just lets an admin trigger it on the user's behalf (e.g. a
+    // support request) without needing the user's password.
+    await auth.api.requestPasswordReset({
+      body: { email: user.email, redirectTo: "/reset-password" },
+      headers: await headers(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Couldn't send the reset link.";
+    throw new Error(message);
+  }
+
+  revalidatePath(`/admin/users/${userId}`);
 }

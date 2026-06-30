@@ -1,25 +1,29 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signUp } from "@/lib/auth-client";
 import { SocialSignInButtons } from "./SocialSignInButtons";
 
 export function RegisterForm() {
-  const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setLoading(true);
 
-    const result = await signUp.email({ name, email, password });
+    const result = await signUp.email({
+      name,
+      email,
+      password,
+      callbackURL: "/verify-email",
+    });
 
     setLoading(false);
 
@@ -28,8 +32,28 @@ export function RegisterForm() {
       return;
     }
 
-    router.push("/account");
-    router.refresh();
+    // requireEmailVerification is on (lib/auth.ts) — signUp.email does NOT
+    // return a session in this mode, so there's no signed-in /account to
+    // send the user to yet. Show a "check your email" state instead.
+    setSubmitted(true);
+  }
+
+  if (submitted) {
+    return (
+      <div className="seed-packet mx-auto max-w-sm p-6 text-center">
+        <h1 className="font-display text-2xl text-canopy">Check your email</h1>
+        <p className="mt-3 text-sm text-loam/70">
+          We&apos;ve sent a verification link to <span className="text-loam">{email}</span>.
+          Click it to activate your account, then sign in.
+        </p>
+        <Link
+          href="/login"
+          className="mt-6 inline-block text-sm font-medium text-canopy underline"
+        >
+          Back to sign in
+        </Link>
+      </div>
+    );
   }
 
   return (

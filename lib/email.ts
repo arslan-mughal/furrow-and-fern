@@ -161,3 +161,56 @@ export async function sendPaymentRejectedEmail(params: {
     html
   );
 }
+
+/**
+ * Called by lib/auth.ts's emailAndPassword.sendResetPassword. `url` is the
+ * full reset link Better Auth generated (already includes the token) — we
+ * just deliver it, we don't construct it ourselves.
+ */
+export async function sendPasswordResetEmail(to: string, url: string): Promise<boolean> {
+  const html = emailLayout(`
+    <h1 style="font-size:21px;color:#1F3A2E;margin:0 0 16px;">Reset your password</h1>
+    <p style="margin:0 0 20px;">
+      We received a request to reset the password for this account. Click below to
+      choose a new one — this link expires in 1 hour.
+    </p>
+    <p style="margin:0 0 24px;">
+      <a href="${url}" style="display:inline-block;background-color:#1F3A2E;color:#F2EDE1;
+        padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
+        Reset password
+      </a>
+    </p>
+    <p style="margin:0;color:#8a7e6e;font-size:13px;">
+      If you didn't request this, you can safely ignore this email — your password
+      won't be changed.
+    </p>
+  `);
+  return sendEmail(to, "Reset your password — Furrow & Fern", html);
+}
+
+/**
+ * Called by lib/auth.ts's emailVerification.sendVerificationEmail, both on
+ * signup (sendOnSignUp: true) and whenever sendVerificationEmail is
+ * triggered manually (resend link on /login, or the admin "Resend
+ * verification" action). `url` already contains the token and, once
+ * clicked, redirects to whatever callbackURL the caller specified.
+ */
+export async function sendVerificationEmail(to: string, url: string): Promise<boolean> {
+  const html = emailLayout(`
+    <h1 style="font-size:21px;color:#1F3A2E;margin:0 0 16px;">Verify your email</h1>
+    <p style="margin:0 0 20px;">
+      One more step — confirm this is your email address so you can sign in to
+      your Furrow &amp; Fern account.
+    </p>
+    <p style="margin:0 0 24px;">
+      <a href="${url}" style="display:inline-block;background-color:#1F3A2E;color:#F2EDE1;
+        padding:10px 20px;border-radius:4px;text-decoration:none;font-weight:bold;">
+        Verify email
+      </a>
+    </p>
+    <p style="margin:0;color:#8a7e6e;font-size:13px;">
+      If you didn't create an account with us, you can safely ignore this email.
+    </p>
+  `);
+  return sendEmail(to, "Verify your email — Furrow & Fern", html);
+}

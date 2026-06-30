@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signIn } from "@/lib/auth-client";
+import { signIn, authClient } from "@/lib/auth-client";
 import { SocialSignInButtons } from "./SocialSignInButtons";
 
 export function LoginForm() {
@@ -13,9 +13,19 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Set when sign-in fails specifically because the email isn't verified
+  // yet (Better Auth returns 403 for this — see requireEmailVerification
+  // in lib/auth.ts). Shown as a distinct message with a resend action,
+  // rather than the generic "incorrect email or password" text.
+  const [unverified, setUnverified] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
+  const [resending, setResending] = useState(false);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setUnverified(false);
+    setResendSent(false);
     setLoading(true);
 
     const result = await signIn.email({ email, password });
@@ -23,12 +33,23 @@ export function LoginForm() {
     setLoading(false);
 
     if (result.error) {
+      if (result.error.status === 403) {
+        setUnverified(true);
+        return;
+      }
       setError(result.error.message ?? "Incorrect email or password.");
       return;
     }
 
     router.push("/account");
     router.refresh();
+  }
+
+  async function handleResend() {
+    setResending(true);
+    await authClient.sendVerificationEmail({ email, callbackURL: "/verify-email" });
+    setResending(false);
+    setResendSent(true);
   }
 
   return (
@@ -38,6 +59,24 @@ export function LoginForm() {
 
       {error && (
         <p className="mt-4 rounded-card bg-clay/10 px-3 py-2 text-sm text-clay">{error}</p>
+      )}
+
+      {unverified && (
+        <div className="mt-4 rounded-card bg-marigold/10 px-3 py-2 text-sm text-loam">
+          <p>Please verify your email before signing in.</p>
+          {resendSent ? (
+            <p className="mt-1 text-xs text-loam/70">Verification email sent — check your inbox.</p>
+          ) : (
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resending}
+              className="mt-1 text-xs font-medium text-canopy underline disabled:opacity-60"
+            >
+              {resending ? "Sending…" : "Resend verification email"}
+            </button>
+          )}
+        </div>
       )}
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-3">
@@ -56,9 +95,14 @@ export function LoginForm() {
           />
         </div>
         <div>
-          <label htmlFor="password" className="text-xs text-loam/70">
-            Password
-          </label>
+          <div className="flex items-center justify-between">
+            <label htmlFor="password" className="text-xs text-loam/70">
+              Password
+            </label>
+            <Link href="/forgot-password" className="text-xs text-canopy underline">
+              Forgot password?
+            </Link>
+          </div>
           <input
             id="password"
             type="password"
