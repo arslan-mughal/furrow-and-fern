@@ -116,7 +116,7 @@ interface SearchInputProps {
   loading: boolean;
   placeholder?: string;
   autoFocus?: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   className?: string;
 }
 
