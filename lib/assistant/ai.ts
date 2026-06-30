@@ -137,7 +137,8 @@ export async function handleGardeningAdvice(
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const text = response.content.find((b: any) => b.type === "text")?.text ?? "";
+    const textBlock = response.content.find((b: any) => b.type === "text") as any;
+    const text = textBlock?.text ?? "";
     if (!text) throw new Error("Empty response from AI");
 
     return { reply: text, source: "ai", intent: "gardening_advice" };
